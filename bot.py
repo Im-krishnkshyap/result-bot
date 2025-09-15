@@ -12,14 +12,14 @@ def scrape_and_send():
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Example: पूरे पेज का टेक्स्ट भेजना
-        text = soup.get_text(strip=True)
-
-        # खाली ना हो तो Telegram पर भेज दो
-        if text:
-            send_message(text[:4000])  # Telegram limit 4096 है
+        # 👉 सिर्फ रिज़ल्ट का हिस्सा निकालें
+        result_box = soup.select_one("div.liveresult")  # सही selector डालना होगा
+        if result_box:
+            text = result_box.get_text(strip=True)
         else:
-            send_message("⚠️ कोई डेटा नहीं मिला")
+            text = "⚠️ रिज़ल्ट नहीं मिला"
+
+        send_message(text[:4000])  # Telegram limit
     except Exception as e:
         send_message(f"❌ Error: {e}")
 
