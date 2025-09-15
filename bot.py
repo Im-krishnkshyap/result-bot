@@ -10,7 +10,7 @@ URL = os.getenv("TARGET_URL")
 
 HISTORY_FILE = "last_results.json"
 TARGET_MARKETS = [
-    "DELHI BAZAR (DL)", "DELHI DREAM", "SUNDRAM", "PESHAWAR", "TAJ"
+    "HINDUSTAN"
 ]
 
 def normalize_text(s: str) -> str:
