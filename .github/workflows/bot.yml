@@ -1,0 +1,28 @@
+name: Telegram Scraper Bot
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # हर 10 मिनट पर result भेजेगा
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
+          TARGET_URL: "https://satta-king-fixed-no.in/"
+        run: python bot.py
