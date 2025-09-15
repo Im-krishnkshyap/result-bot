@@ -7,7 +7,7 @@ CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("TARGET_URL")
 
 # यहाँ अपने target नाम डालें
-TARGET_MARKET = "SHRI GANESH"
+TARGET_MARKET = " SHRI GANESH "
 
 def scrape_results():
     r = requests.get(URL, timeout=10)
