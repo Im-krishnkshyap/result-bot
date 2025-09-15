@@ -6,31 +6,37 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("TARGET_URL")
 
+# यहाँ अपने target नाम डालें
+TARGET_MARKET = "RAJSHRI"
+
 def scrape_results():
     r = requests.get(URL, timeout=10)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # टेबल या div से रिज़ल्ट निकालो (यह selector website के हिसाब से बदलना होगा)
-    result_table = soup.find("table", class_="resultTable")
     results = []
-    if result_table:
-        rows = result_table.find_all("tr")
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) >= 2:
-                market = cols[0].get_text(strip=True)
-                number = cols[1].get_text(strip=True)
-                results.append(f"{market} === {number}")
-    
-    # अगले आने वाले रिज़ल्ट के लिए placeholder
-    next_result = "आने वाला == wait..."
-    
+
+    # सभी livegame tags ढूँढो
+    games = soup.find_all("p", class_="livegame")
+    for game in games:
+        market = game.get_text(strip=True)
+
+        # अगला sibling result पकड़ना
+        result_tag = game.find_next_sibling("p", class_="liveresult")
+        result = result_tag.get_text(strip=True) if result_tag else "WAIT"
+
+        # सिर्फ target नाम match होने पर ही जोड़ना
+        if market.upper() == TARGET_MARKET.upper():
+            results.append(f"{market} === {result}")
+
+    if not results:
+        return f"⚠️ {TARGET_MARKET} का रिज़ल्ट नहीं मिला!"
+
     # टेक्स्ट तैयार करना
     final_text = "📢 खबर की जानकारी👇\n\n"
     final_text += "\n".join(results)
-    final_text += f"\n\n{next_result}\n\n🙏 Antaryami Baba"
-    
+    final_text += "\n\n🙏 Antaryami Baba"
+
     return final_text
 
 def send_message(msg):
