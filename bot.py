@@ -10,7 +10,7 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 
 STATE_FILE = "last_sent.json"
 
-TARGETS = [" DELHI BAZAR (DL) ", " SHRI GANESH ", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
+TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
 
