@@ -16,7 +16,7 @@ TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DIS
 
 def canonical_name(raw):
     s = raw.upper().strip()
-    if "DELHI" in s and "BAZAR" in s: return "DELHI BAZAR"
+    if "DELHI" in s and "BAZAR(DL)" in s: return "DELHI BAZAR"
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
