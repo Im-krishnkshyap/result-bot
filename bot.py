@@ -31,17 +31,15 @@ def extract_num(text):
 
 def load_state():
     if not os.path.exists(STATE_FILE):
-        return {"date": None, "sent_results": {}}
+        return {"date": None, "sent_results": {}, "fallback_sent": False}
     try:
         with open(STATE_FILE, "r") as f:
             data = json.load(f)
             if not isinstance(data, dict):
-                return {"date": None, "sent_results": {}}
-            if "date" not in data or "sent_results" not in data:
-                return {"date": None, "sent_results": {}}
+                return {"date": None, "sent_results": {}, "fallback_sent": False}
             return data
     except Exception:
-        return {"date": None, "sent_results": {}}
+        return {"date": None, "sent_results": {}, "fallback_sent": False}
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
@@ -104,9 +102,13 @@ def main():
     state = load_state()
     soup = fetch_html()
 
-    # अगर date बदल गया → state reset
-    if state.get("date") != today:
-        state = {"date": today, "sent_results": {}}
+    # ---------- Fallback: अगर date बदल गया और कल का result missed ----------
+    if state.get("date") != today and not state.get("fallback_sent", False):
+        yres = parse_chart_for_date(soup, yesterday)
+        if yres:
+            msg = build_message(yesterday, yres)
+            send_message(msg)
+        state = {"date": today, "sent_results": {}, "fallback_sent": True}
         save_state(state)
 
     # आज के live और chart results
@@ -121,18 +123,17 @@ def main():
         elif g in todays_chart:
             final_results[g] = todays_chart[g]
 
-    # अपडेट्स चेक करो (जो पहले भेजा नहीं गया या बदल गया)
+    # ---------- Updates check ----------
     updates = {}
     for g, val in final_results.items():
         prev_val = state.get("sent_results", {}).get(g)
         if prev_val != val:
             updates[g] = val
 
-    # अगर कुछ अपडेट है → भेजो
+    # ---------- Send updates ----------
     if updates:
         msg = build_message(today, updates)
         send_message(msg)
-        # state update
         state.setdefault("sent_results", {}).update(updates)
         state["date"] = today
         save_state(state)
