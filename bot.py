@@ -71,6 +71,12 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
+def build_message(results):
+    lines = ["*🔛खबर की जानकारी👉*", "*⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️*"]
+    for t in TARGETS:
+        lines.append(f"*{t}:* {results.get(t,'WAIT')}")
+    return "\n".join(lines)
+
 def main():
     html = requests.get(URL, timeout=10).text
     soup = BeautifulSoup(html, "html.parser")
@@ -81,28 +87,25 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     state = load_state()
 
-    # अगर नया दिन है और अभी तक Delhi Bazar open नहीं हुआ
+    # Reset on new day
     if state.get("date") != today:
         final = {t: chart.get(t, "WAIT") for t in TARGETS}
+        msg = build_message(final)
+        send_message(msg)   # ✅ अब baseline message भी जाएगा
         state = {"date": today, "results": final}
-        print("Day reset, showing yesterday's results until Delhi Bazar opens")
         save_state(state)
-        return  # पहला message अगले नए result पर भेजेगा
+        return
 
-    # Merge results
+    # Merge with today's state
     final = state["results"].copy()
     updated = False
     for t in TARGETS:
-        if t in live:
-            if final.get(t) != live[t]:
-                final[t] = live[t]
-                updated = True
+        if t in live and final.get(t) != live[t]:
+            final[t] = live[t]
+            updated = True
 
     if updated:
-        lines = ["*🔛खबर की जानकारी👉*", "*⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️*"]
-        for t in TARGETS:
-            lines.append(f"*{t}:* {final[t]}")
-        msg = "\n".join(lines)
+        msg = build_message(final)
         send_message(msg)
         state["results"] = final
         save_state(state)
