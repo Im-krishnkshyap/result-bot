@@ -10,6 +10,8 @@ STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GAZIYABAD", "GALI", "DESAWAR"]
 
+# ------------------ Utility functions ------------------
+
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI" in s and "BAZAR" in s: return "DELHI BAZAR"
@@ -37,6 +39,8 @@ def send_message(msg):
     except Exception as e:
         print("Send fail:", e, file=sys.stderr)
 
+# ------------------ Parsing functions ------------------
+
 def parse_live(soup):
     results = {}
     games = soup.select(".resultmain .livegame")
@@ -45,21 +49,29 @@ def parse_live(soup):
         name = canonical_name(g.get_text())
         if i < len(vals):
             num = extract_num(vals[i].get_text())
-            if num: results[name] = num
+            if num:
+                results[name] = num
     return results
 
 def parse_chart(soup):
     results = {}
     rows = soup.select("table.newtable tr")
-    if not rows: return results
-    last = rows[-1].find_all("td")
-    headers = [h.get_text().strip().upper() for h in rows[0].find_all("th")]
+    if not rows:
+        return results
+
+    headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
+    last = rows[-1].find_all(["td","th"])
+
     for i, h in enumerate(headers):
         cname = canonical_name(h)
         if cname in TARGETS and i < len(last):
-            num = extract_num(last[i].get_text())
-            if num: results[cname] = num
+            cell_text = last[i].get_text().strip()
+            num = extract_num(cell_text)
+            if num:
+                results[cname] = num
     return results
+
+# ------------------ State functions ------------------
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -77,6 +89,8 @@ def build_message(results):
         lines.append(f"*{t}:* {results.get(t,'WAIT')}")
     return "\n".join(lines)
 
+# ------------------ Main logic ------------------
+
 def main():
     html = requests.get(URL, timeout=10).text
     soup = BeautifulSoup(html, "html.parser")
@@ -87,16 +101,16 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     state = load_state()
 
-    # Reset on new day
+    # Reset on new day → show yesterday's chart snapshot
     if state.get("date") != today:
         final = {t: chart.get(t, "WAIT") for t in TARGETS}
         msg = build_message(final)
-        send_message(msg)   # ✅ अब baseline message भी जाएगा
+        send_message(msg)
         state = {"date": today, "results": final}
         save_state(state)
         return
 
-    # Merge with today's state
+    # Update only if new live results come
     final = state["results"].copy()
     updated = False
     for t in TARGETS:
