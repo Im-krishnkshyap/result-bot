@@ -1,16 +1,18 @@
 import os
 import json
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime, time
+from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+
 STATE_FILE = "last_sent.json"
 
-# ------------------ Config ------------------
-# Refresh time windows for each game
+TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
+
+# Time windows (24h) - adjust as per your schedule
 REFRESH_WINDOWS = {
     "DELHI BAZAR": (time(3,14), time(3,20)),
     "SHRI GANESH": (time(4,45), time(4,50)),
@@ -20,9 +22,28 @@ REFRESH_WINDOWS = {
     "DISAWER": (time(17,15), time(17,20)),
 }
 
-TARGETS = list(REFRESH_WINDOWS.keys())
+# ---------------- Utility ----------------
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
 
-# ------------------ Utility ------------------
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+def fetch_html():
+    r = requests.get(URL, timeout=20)
+    r.raise_for_status()
+    return BeautifulSoup(r.text, "html.parser")
+
+def send_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
 def canonical_name(raw):
     s = raw.upper().strip()
@@ -36,35 +57,14 @@ def canonical_name(raw):
 
 def extract_num(text):
     t = text.strip()
-    if t.upper() == "WAIT" or t == "":
-        return None
-    return t if t.isdigit() else None
+    if t.upper() == "WAIT" or t == "": 
+        return "WAIT"
+    return t if t.isdigit() else "WAIT"
 
-def load_state():
-    if not os.path.exists(STATE_FILE):
-        return {}
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
-
-def fetch_html():
-    r = requests.get(URL, timeout=20)
-    r.raise_for_status()
-    return BeautifulSoup(r.text, "html.parser")
-
-def send_message(text):
-    if BOT_TOKEN and GROUP_CHAT_ID:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        resp = requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
-        print("Message sent:", resp.status_code)
-    else:
-        print("BOT_TOKEN or GROUP_CHAT_ID not set!")
+def in_window(game):
+    now = datetime.now().time()
+    start, end = REFRESH_WINDOWS[game]
+    return start <= now <= end
 
 def parse_live(soup):
     results = {}
@@ -74,24 +74,17 @@ def parse_live(soup):
         cname = canonical_name(g.get_text())
         if cname in TARGETS and i < len(vals):
             num = extract_num(vals[i].get_text())
-            results[cname] = num if num else "WAIT"
+            results[cname] = num
     return results
 
 def build_message(updates):
-    lines = ["🕉 Antaryami Baba 🕉:"]
-    now = datetime.now().strftime("%d-%m %I:%M %p")
-    lines.append(f"📅 {now} का अपडेट")
+    lines = ["🕉Antaryami Baba🕉:"]
+    lines.append(f"📅 {datetime.now().strftime('%d-%m')} का अपडेट")
     for g, v in updates.items():
         lines.append(f"{g} → {v}")
     return "\n".join(lines)
 
-def in_window(game):
-    start, end = REFRESH_WINDOWS[game]
-    now = datetime.now().time()
-    return start <= now <= end
-
-# ------------------ Main ------------------
-
+# ---------------- Main ----------------
 def main():
     state = load_state()
     soup = fetch_html()
@@ -99,8 +92,9 @@ def main():
 
     updates = {}
     for g in TARGETS:
-        if in_window(g):  # केवल अपने time window में ही check करें
+        if in_window(g):
             val = live_results.get(g, "WAIT")
+            print(f"[DEBUG] {g}: {val}")  # debug
             if state.get(g) != val:
                 updates[g] = val
                 state[g] = val
@@ -109,8 +103,6 @@ def main():
         msg = build_message(updates)
         send_message(msg)
         save_state(state)
-    else:
-        print("No new updates in current windows.")
 
 if __name__ == "__main__":
     main()
