@@ -11,6 +11,13 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+- name: Save state
+      run: |
+        git config --global user.name "github-actions"
+        git config --global user.email "github-actions@github.com"
+        git add last_sent.json
+        git commit -m "update state [skip ci]" || echo "No changes"
+        git push
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -26,10 +33,3 @@ jobs:
           GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           TARGET_URL: ${{ secrets.TARGET_URL }}
         run: python bot.py
-- name: Save state
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        git add last_sent.json
-        git commit -m "update state [skip ci]" || echo "No changes"
-        git push
