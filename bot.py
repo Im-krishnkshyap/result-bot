@@ -4,15 +4,16 @@ import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-# ------------------ Config ------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
+
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI BAZAR" in s: return "DELHI BAZAR"
@@ -31,15 +32,17 @@ def extract_num(text):
 
 def load_state():
     if not os.path.exists(STATE_FILE):
-        return {"date": None, "sent_results": {}, "fallback_sent": False}
+        return {"date": None, "sent_results": {}}
     try:
         with open(STATE_FILE, "r") as f:
             data = json.load(f)
             if not isinstance(data, dict):
-                return {"date": None, "sent_results": {}, "fallback_sent": False}
+                return {"date": None, "sent_results": {}}
+            if "date" not in data or "sent_results" not in data:
+                return {"date": None, "sent_results": {}}
             return data
     except Exception:
-        return {"date": None, "sent_results": {}, "fallback_sent": False}
+        return {"date": None, "sent_results": {}}
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
@@ -55,6 +58,7 @@ def send_message(text):
     requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
 # ------------------ Parsing ------------------
+
 def parse_live(soup):
     results = {}
     games = soup.select(".resultmain .livegame")
@@ -91,31 +95,32 @@ def parse_chart_for_date(soup, date_str):
 
 def build_message(date_str, updates):
     lines = [f"📅 {date_str} का अपडेट"]
-    for g, v in updates.items():
-        lines.append(f"{g} → {v}")
+    for g in TARGETS:
+        if g in updates:
+            lines.append(f"{g} → {updates[g]}")
     return "\n".join(lines)
 
 # ------------------ Main ------------------
+
 def main():
     today = datetime.now().strftime("%d-%m")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
     soup = fetch_html()
 
-    # ---------- Fallback: अगर date बदल गया और कल का result missed ----------
-    if state.get("date") != today and not state.get("fallback_sent", False):
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
-            send_message(msg)
-        state = {"date": today, "sent_results": {}, "fallback_sent": True}
+    # ---------- अगर date बदल गया तो state reset ----------
+    if state.get("date") != today:
+        state = {"date": today, "sent_results": {}}
         save_state(state)
 
-    # आज के live और chart results
+    # आज के live results parse करो
     todays_live = parse_live(soup)
-    todays_chart = parse_chart_for_date(soup, today)
 
-    # Merge: live > chart
+    # अगर live में DELHI BAZAR नहीं है तो अभी कुछ मत भेजो
+    if "DELHI BAZAR" not in todays_live:
+        return
+
+    # Merge live > chart
+    todays_chart = parse_chart_for_date(soup, today)
     final_results = {}
     for g in TARGETS:
         if g in todays_live:
@@ -130,7 +135,7 @@ def main():
         if prev_val != val:
             updates[g] = val
 
-    # ---------- Send updates ----------
+    # ---------- अगर कुछ update है → send message ----------
     if updates:
         msg = build_message(today, updates)
         send_message(msg)
