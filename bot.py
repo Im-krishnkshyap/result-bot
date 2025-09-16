@@ -2,15 +2,25 @@ import os
 import json
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, time
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")        # Telegram bot token
-GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")  # Telegram group chat id
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
-
 STATE_FILE = "last_sent.json"
 
-TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
+# ------------------ Config ------------------
+# Refresh time windows for each game
+REFRESH_WINDOWS = {
+    "DELHI BAZAR": (time(3,14), time(3,20)),
+    "SHRI GANESH": (time(4,45), time(4,50)),
+    "FARIDABAD": (time(6,14), time(6,20)),
+    "GHAZIYABAD": (time(10,5), time(10,15)),
+    "GALI": (time(12,0), time(12,5)),
+    "DISAWER": (time(17,15), time(17,20)),
+}
+
+TARGETS = list(REFRESH_WINDOWS.keys())
 
 # ------------------ Utility ------------------
 
@@ -56,8 +66,6 @@ def send_message(text):
     else:
         print("BOT_TOKEN or GROUP_CHAT_ID not set!")
 
-# ------------------ Parsing ------------------
-
 def parse_live(soup):
     results = {}
     games = soup.select(".resultmain .livegame")
@@ -70,12 +78,17 @@ def parse_live(soup):
     return results
 
 def build_message(updates):
-    lines = [f"🕉 Antaryami Baba 🕉:"]
+    lines = ["🕉 Antaryami Baba 🕉:"]
     now = datetime.now().strftime("%d-%m %I:%M %p")
     lines.append(f"📅 {now} का अपडेट")
     for g, v in updates.items():
         lines.append(f"{g} → {v}")
     return "\n".join(lines)
+
+def in_window(game):
+    start, end = REFRESH_WINDOWS[game]
+    now = datetime.now().time()
+    return start <= now <= end
 
 # ------------------ Main ------------------
 
@@ -86,18 +99,18 @@ def main():
 
     updates = {}
     for g in TARGETS:
-        val = live_results.get(g, "WAIT")
-        # अगर नया result आया या state में नहीं है
-        if state.get(g) != val:
-            updates[g] = val
-            state[g] = val
+        if in_window(g):  # केवल अपने time window में ही check करें
+            val = live_results.get(g, "WAIT")
+            if state.get(g) != val:
+                updates[g] = val
+                state[g] = val
 
     if updates:
         msg = build_message(updates)
         send_message(msg)
         save_state(state)
     else:
-        print("No new updates.")
+        print("No new updates in current windows.")
 
 if __name__ == "__main__":
     main()
