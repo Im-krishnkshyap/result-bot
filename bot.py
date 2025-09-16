@@ -1,10 +1,12 @@
 # bot.py
-import requests, os, re, sys
+import requests, os, re, sys, json
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GAZIYABAD", "GALI", "DESAWAR"]
 
@@ -48,10 +50,9 @@ def parse_live(soup):
 
 def parse_chart(soup):
     results = {}
-    # पहली chart table (जिसमें Faridabad, Ghaziabad, Gali, Disawar etc.)
     rows = soup.select("table.newtable tr")
     if not rows: return results
-    last = rows[-1].find_all("td")   # सबसे नीचे वाली row (latest date)
+    last = rows[-1].find_all("td")
     headers = [h.get_text().strip().upper() for h in rows[0].find_all("th")]
     for i, h in enumerate(headers):
         cname = canonical_name(h)
@@ -60,6 +61,16 @@ def parse_chart(soup):
             if num: results[cname] = num
     return results
 
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
 def main():
     html = requests.get(URL, timeout=10).text
     soup = BeautifulSoup(html, "html.parser")
@@ -67,22 +78,36 @@ def main():
     live = parse_live(soup)
     chart = parse_chart(soup)
 
-    final = {}
+    today = datetime.now().strftime("%Y-%m-%d")
+    state = load_state()
+
+    # अगर नया दिन है और अभी तक Delhi Bazar open नहीं हुआ
+    if state.get("date") != today:
+        final = {t: chart.get(t, "WAIT") for t in TARGETS}
+        state = {"date": today, "results": final}
+        print("Day reset, showing yesterday's results until Delhi Bazar opens")
+        save_state(state)
+        return  # पहला message अगले नए result पर भेजेगा
+
+    # Merge results
+    final = state["results"].copy()
+    updated = False
     for t in TARGETS:
         if t in live:
-            final[t] = live[t]
-        elif t in chart:
-            final[t] = chart[t]
-        else:
-            final[t] = "WAIT"
+            if final.get(t) != live[t]:
+                final[t] = live[t]
+                updated = True
 
-    lines = ["*🔛खबर की जानकारी👉*", "*⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️*"]
-    for t in TARGETS:
-        lines.append(f"*{t}:* {final[t]}")
-    msg = "\n".join(lines)
-
-    print("Sending:\n", msg)
-    send_message(msg)
+    if updated:
+        lines = ["*🔛खबर की जानकारी👉*", "*⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️*"]
+        for t in TARGETS:
+            lines.append(f"*{t}:* {final[t]}")
+        msg = "\n".join(lines)
+        send_message(msg)
+        state["results"] = final
+        save_state(state)
+    else:
+        print("No new results, nothing sent.")
 
 if __name__ == "__main__":
     main()
