@@ -10,22 +10,25 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 
 STATE_FILE = "last_sent.json"
 
+# Game Targets
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
 
 def canonical_name(raw):
     s = raw.upper().strip()
-    if "DELHI" in s and "BAZAR(DL)" in s: return "DELHI BAZAR"
+    if "DELHI BAZAR" in s: return "DELHI BAZAR"
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
-    if "GALI" == s: return "GALI"
+    if "GALI" in s: return "GALI"
     if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
     return s
 
 def extract_num(text):
     t = text.strip()
+    if t.upper() == "WAIT" or t == "": 
+        return None
     return t if t.isdigit() else None
 
 def load_state():
@@ -55,28 +58,40 @@ def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
-# ------------------ Chart Parsing ------------------
+# ------------------ Parsing ------------------
+
+def parse_live(soup):
+    results = {}
+    games = soup.select(".resultmain .livegame")
+    vals = soup.select(".resultmain .liveresult")
+    for i, g in enumerate(games):
+        cname = canonical_name(g.get_text())
+        if cname in TARGETS and i < len(vals):
+            num = extract_num(vals[i].get_text())
+            if num:
+                results[cname] = num
+    return results
 
 def parse_chart_for_date(soup, date_str):
     results = {}
-    rows = soup.select("table.newtable tr")
-    if not rows:
-        return results
-
-    headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th", "td"])]
-
-    for row in rows[1:]:
-        cols = row.find_all(["td", "th"])
-        if not cols: 
+    tables = soup.select("table.newtable")
+    for table in tables:
+        rows = table.select("tr")
+        if not rows:
             continue
-        if cols[0].get_text().strip() == date_str:
-            for i, h in enumerate(headers):
-                cname = canonical_name(h)
-                if cname in TARGETS and i < len(cols):
-                    num = extract_num(cols[i].get_text())
-                    if num:
-                        results[cname] = num
-            break
+        headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
+        for row in rows[1:]:
+            cols = row.find_all(["td","th"])
+            if not cols:
+                continue
+            if cols[0].get_text().strip() == date_str:
+                for i, h in enumerate(headers):
+                    cname = canonical_name(h)
+                    if cname in TARGETS and i < len(cols):
+                        num = extract_num(cols[i].get_text())
+                        if num:
+                            results[cname] = num
+                break
     return results
 
 def build_message(date_str, results, fallback=False):
@@ -93,18 +108,11 @@ def build_message(date_str, results, fallback=False):
 def main():
     today = datetime.now().strftime("%d-%m")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
-
     state = load_state()
-
-    # Safety check (अगर कुछ missing हो)
-    if "date" not in state:
-        state["date"] = None
-    if "sent_results" not in state:
-        state["sent_results"] = {}
 
     soup = fetch_html()
 
-    # 1. नया दिन → कल का पूरा result भेजो
+    # 1️⃣ नया दिन → कल का पूरा result भेजो
     if state["date"] != today:
         yres = parse_chart_for_date(soup, yesterday)
         if yres:
@@ -113,31 +121,35 @@ def main():
         state = {"date": today, "sent_results": {}}
         save_state(state)
 
-    # 2. आज का chart parse करो
-    todays_results = parse_chart_for_date(soup, today)
+    # 2️⃣ आज का live chart parse करो
+    todays_live = parse_live(soup)
+    todays_chart = parse_chart_for_date(soup, today)
 
-    # 3. अगर Delhi Bazar अभी तक नहीं है → कुछ मत भेजो
-    if "DELHI BAZAR" not in todays_results:
+    # 3️⃣ Delhi Bazar(DL) आने तक कोई live msg मत भेजो
+    if "DELHI BAZAR" not in todays_live:
         return
 
-    # 4. Delhi Bazar आते ही नया msg भेजो
-    if not state["sent_results"]:
-        msg = build_message(today, todays_results)
-        send_message(msg)
-        state["sent_results"] = todays_results
-        save_state(state)
-        return
-
-    # 5. बाद में बाकी results आते रहें → update
+    # 4️⃣ Delhi Bazar आने के बाद send/update
+    final_results = state.get("sent_results", {}).copy()
     updated = False
-    for g, num in todays_results.items():
-        if g not in state["sent_results"] or state["sent_results"][g] != num:
-            state["sent_results"][g] = num
+
+    # Merge priority: live > chart
+    for g in TARGETS:
+        new_val = None
+        if g in todays_live:
+            new_val = todays_live[g]
+        elif g in todays_chart:
+            new_val = todays_chart[g]
+
+        if new_val and final_results.get(g) != new_val:
+            final_results[g] = new_val
             updated = True
 
     if updated:
-        msg = build_message(today, state["sent_results"])
+        msg = build_message(today, final_results)
         send_message(msg)
+        state["sent_results"] = final_results
+        state["date"] = today
         save_state(state)
 
 if __name__ == "__main__":
