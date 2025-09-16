@@ -10,13 +10,13 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 
 STATE_FILE = "last_sent.json"
 
-TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
+TARGETS = [" DELHI BAZAR (DL) ", " SHRI GANESH ", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
 
 def canonical_name(raw):
     s = raw.upper().strip()
-    if " DELHI BAZAR (DL) " in s: return "DELHI BAZAR"
+    if "(DL)" in s:: return "DELHI BAZAR"
     if "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
