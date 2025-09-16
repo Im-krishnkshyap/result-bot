@@ -1,149 +1,128 @@
-# bot.py
-import requests, os, re, sys, json
+import os
+import json
+import requests
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from datetime import datetime
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("GROUP_CHAT_ID")
+GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+
 STATE_FILE = "last_sent.json"
 
-TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GAZIYABAD", "GALI", "DESAWAR"]
+TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
 
 def canonical_name(raw):
     s = raw.upper().strip()
-    if "DELHI" in s and "BAZAR" in s: return "DELHI BAZAR"
+    if "DELHI BAZAR" in s: return "DELHI BAZAR"
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
-    if "GAZI" in s or "GHAZI" in s: return "GAZIYABAD"
-    if "GALI" in s: return "GALI"
-    if "DISAWER" in s or "DESAWAR" in s: return "DESAWAR"
+    if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
+    if "GALI" == s: return "GALI"
+    if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
     return s
 
 def extract_num(text):
-    if not text: return None
-    m = re.search(r'\d{1,3}', text)
-    return m.group(0) if m else None
-
-def send_message(msg):
-    if not BOT_TOKEN or not CHAT_ID:
-        print("BOT_TOKEN or CHAT_ID not set")
-        return
-    api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}
-    try:
-        r = requests.post(api, data=payload, timeout=10)
-        print("Telegram send:", r.status_code, r.text)
-    except Exception as e:
-        print("Send fail:", e, file=sys.stderr)
-
-# ------------------ Parsing ------------------
-
-def parse_live(soup):
-    results = {}
-    games = soup.select(".resultmain .livegame")
-    vals  = soup.select(".resultmain .liveresult")
-    for i, g in enumerate(games):
-        name = canonical_name(g.get_text())
-        if i < len(vals):
-            num = extract_num(vals[i].get_text())
-            if num:
-                results[name] = num
-    return results
-
-def parse_gboard(soup):
-    results = {}
-    blocks = soup.select(".gboardfull, .gboardhalf")
-    for block in blocks:
-        name_el = block.select_one(".gbfullgamename, .gbgamehalf")
-        value_el = block.select_one(".gbfullresult, .gbhalfresulto")
-        if name_el and value_el:
-            cname = canonical_name(name_el.get_text())
-            num = extract_num(value_el.get_text())
-            if cname in TARGETS and num:
-                results[cname] = num
-    return results
-
-def parse_chart(soup):
-    results = {}
-    rows = soup.select("table.newtable tr")
-    if not rows: return results
-    headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
-    last = rows[-1].find_all(["td","th"])
-    for i, h in enumerate(headers):
-        cname = canonical_name(h)
-        if cname in TARGETS and i < len(last):
-            cell_text = last[i].get_text().strip()
-            num = extract_num(cell_text)
-            if num:
-                results[cname] = num
-    return results
-
-# ------------------ State ------------------
+    t = text.strip()
+    return t if t.isdigit() else None
 
 def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            return json.load(f)
-    return {}
+    if not os.path.exists(STATE_FILE):
+        return {"date": None, "sent_results": {}}
+    with open(STATE_FILE, "r") as f:
+        return json.load(f)
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-def build_message(results):
-    lines = ["*🔛खबर की जानकारी👉*", "*⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️*"]
-    for t in TARGETS:
-        lines.append(f"*{t}:* {results.get(t,'WAIT')}")
+def fetch_html():
+    r = requests.get(URL, timeout=20)
+    r.raise_for_status()
+    return BeautifulSoup(r.text, "html.parser")
+
+def send_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
+
+# ------------------ Chart Parsing ------------------
+
+def parse_chart_for_date(soup, date_str):
+    results = {}
+    rows = soup.select("table.newtable tr")
+    if not rows:
+        return results
+
+    headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th", "td"])]
+
+    for row in rows[1:]:
+        cols = row.find_all(["td", "th"])
+        if not cols: continue
+        if cols[0].get_text().strip() == date_str:
+            for i, h in enumerate(headers):
+                cname = canonical_name(h)
+                if cname in TARGETS and i < len(cols):
+                    num = extract_num(cols[i].get_text())
+                    if num:
+                        results[cname] = num
+            break
+    return results
+
+def build_message(date_str, results, fallback=False):
+    lines = [f"📅 {date_str} का रिज़ल्ट"]
+    for g in TARGETS:
+        if g in results:
+            lines.append(f"{g} → {results[g]}")
+        else:
+            lines.append(f"{g} → {'WAIT' if not fallback else 'NA'}")
     return "\n".join(lines)
 
 # ------------------ Main ------------------
 
 def main():
-    html = requests.get(URL, timeout=10).text
-    soup = BeautifulSoup(html, "html.parser")
+    today = datetime.now().strftime("%d-%m")
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
 
-    live = parse_live(soup)
-    gboard = parse_gboard(soup)
-    chart = parse_chart(soup)
-
-    today = datetime.now().strftime("%Y-%m-%d")
     state = load_state()
+    soup = fetch_html()
 
-    # Reset on new day → start from chart (yesterday results)
-    if state.get("date") != today:
-        final = {t: chart.get(t, "WAIT") for t in TARGETS}
-        msg = build_message(final)
+    # 1. नया दिन → कल का पूरा result भेजो
+    if state["date"] != today:
+        yres = parse_chart_for_date(soup, yesterday)
+        if yres:
+            msg = build_message(yesterday, yres, fallback=True)
+            send_message(msg)
+        state = {"date": today, "sent_results": {}}
+        save_state(state)
+
+    # 2. आज का chart parse करो
+    todays_results = parse_chart_for_date(soup, today)
+
+    # 3. अगर Delhi Bazar अभी तक नहीं है → कुछ मत भेजो
+    if "DELHI BAZAR" not in todays_results:
+        return
+
+    # 4. Delhi Bazar आते ही नया msg भेजो
+    if not state["sent_results"]:
+        msg = build_message(today, todays_results)
         send_message(msg)
-        state = {"date": today, "results": final}
+        state["sent_results"] = todays_results
         save_state(state)
         return
 
-    # Merge priority: live > gboard > chart
-    final = state["results"].copy()
+    # 5. बाद में बाकी results आते रहें → update
     updated = False
-    for t in TARGETS:
-        new_val = None
-        if t in live:
-            new_val = live[t]
-        elif t in gboard:
-            new_val = gboard[t]
-        elif t in chart:
-            new_val = chart[t]
-
-        if new_val and final.get(t) != new_val:
-            final[t] = new_val
+    for g, num in todays_results.items():
+        if g not in state["sent_results"] or state["sent_results"][g] != num:
+            state["sent_results"][g] = num
             updated = True
 
     if updated:
-        msg = build_message(final)
+        msg = build_message(today, state["sent_results"])
         send_message(msg)
-        state["results"] = final
         save_state(state)
-    else:
-        print("No new results, nothing sent.")
 
 if __name__ == "__main__":
     main()
