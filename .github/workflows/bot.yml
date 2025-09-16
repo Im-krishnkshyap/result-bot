@@ -2,7 +2,7 @@ name: Run Telegram Bot
 
 on:
   schedule:
-    - cron: "*/1 * * * *"   # हर 1 मिनट पर (आप चाहें तो 10 मिनट कर सकते हैं "*/10 * * * *")
+    - cron: "*/1 * * * *"   # हर 10 मिनट पर
   workflow_dispatch:         # Manual run option
 
 jobs:
@@ -19,10 +19,17 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+- name: Save state
+      run: |
+        git config --global user.name "github-actions"
+        git config --global user.email "github-actions@github.com"
+        git add last_sent.json
+        git commit -m "update state [skip ci]" || echo "No changes"
+        git push
 
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
-          RESULT_URL: ${{ secrets.TARGET_URL }}
+          GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
+          TARGET_URL: ${{ secrets.TARGET_URL }}
         run: python bot.py
