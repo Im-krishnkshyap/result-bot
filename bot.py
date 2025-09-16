@@ -4,16 +4,15 @@ import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
+# ------------------ Config ------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
-
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
-
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI BAZAR" in s: return "DELHI BAZAR"
@@ -58,7 +57,6 @@ def send_message(text):
     requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
 # ------------------ Parsing ------------------
-
 def parse_live(soup):
     results = {}
     games = soup.select(".resultmain .livegame")
@@ -100,19 +98,14 @@ def build_message(date_str, updates):
     return "\n".join(lines)
 
 # ------------------ Main ------------------
-
 def main():
     today = datetime.now().strftime("%d-%m")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
     soup = fetch_html()
 
-    # नया दिन → कल का पूरा result भेजो (fallback)
+    # अगर date बदल गया → state reset
     if state.get("date") != today:
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
-            send_message(msg)
         state = {"date": today, "sent_results": {}}
         save_state(state)
 
@@ -128,16 +121,18 @@ def main():
         elif g in todays_chart:
             final_results[g] = todays_chart[g]
 
-    # अपडेट्स चेक करो
+    # अपडेट्स चेक करो (जो पहले भेजा नहीं गया या बदल गया)
     updates = {}
     for g, val in final_results.items():
-        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
+        prev_val = state.get("sent_results", {}).get(g)
+        if prev_val != val:
             updates[g] = val
 
     # अगर कुछ अपडेट है → भेजो
     if updates:
         msg = build_message(today, updates)
         send_message(msg)
+        # state update
         state.setdefault("sent_results", {}).update(updates)
         state["date"] = today
         save_state(state)
