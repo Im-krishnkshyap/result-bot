@@ -10,6 +10,7 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 
 STATE_FILE = "last_sent.json"
 
+# Target games
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
@@ -20,15 +21,14 @@ def canonical_name(raw):
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
-    if "GALI" in s: return "GALI"
+    if "GALI" == s: return "GALI"
     if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
     return s
 
-def extract_num(text):
-    t = text.strip()
-    if t.upper() == "WAIT" or t == "": 
-        return None
-    return t if t.isdigit() else None
+def fetch_html():
+    r = requests.get(URL, timeout=20)
+    r.raise_for_status()
+    return BeautifulSoup(r.text, "html.parser")
 
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -48,16 +48,11 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-def fetch_html():
-    r = requests.get(URL, timeout=20)
-    r.raise_for_status()
-    return BeautifulSoup(r.text, "html.parser")
-
 def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
-# ------------------ Parsing ------------------
+# ------------------ Live Parsing ------------------
 
 def parse_live(soup):
     results = {}
@@ -66,75 +61,44 @@ def parse_live(soup):
     for i, g in enumerate(games):
         cname = canonical_name(g.get_text())
         if cname in TARGETS and i < len(vals):
-            num = extract_num(vals[i].get_text())
-            if num:
-                results[cname] = num
+            val_text = vals[i].get_text().strip()
+            if val_text.upper() != "WAIT" and val_text != "":
+                results[cname] = val_text  # केवल valid numbers add करें
     return results
 
-def parse_chart_for_date(soup, date_str):
-    results = {}
-    tables = soup.select("table.newtable")
-    for table in tables:
-        rows = table.select("tr")
-        if not rows:
-            continue
-        headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
-        for row in rows[1:]:
-            cols = row.find_all(["td","th"])
-            if not cols:
-                continue
-            if cols[0].get_text().strip() == date_str:
-                for i, h in enumerate(headers):
-                    cname = canonical_name(h)
-                    if cname in TARGETS and i < len(cols):
-                        num = extract_num(cols[i].get_text())
-                        if num:
-                            results[cname] = num
-                break
-    return results
-
-def build_message(date_str, updates):
+def build_message(date_str, results):
     lines = [f"📅 {date_str} का अपडेट"]
-    for g, v in updates.items():
-        lines.append(f"{g} → {v}")
+    for g in TARGETS:
+        if g in results:
+            lines.append(f"{g} → {results[g]}")
+        else:
+            lines.append(f"{g} → WAIT")
     return "\n".join(lines)
 
 # ------------------ Main ------------------
 
 def main():
     today = datetime.now().strftime("%d-%m")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
-    soup = fetch_html()
+    if "date" not in state: state["date"] = None
+    if "sent_results" not in state: state["sent_results"] = {}
 
-    # नया दिन → कल का पूरा result भेजो (fallback)
-    if state.get("date") != today:
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
-            send_message(msg)
+    soup = fetch_html()
+    live_results = parse_live(soup)
+
+    # अगर date change हुआ → state reset
+    if state["date"] != today:
         state = {"date": today, "sent_results": {}}
         save_state(state)
 
-    # आज के live और chart results
-    todays_live = parse_live(soup)
-    todays_chart = parse_chart_for_date(soup, today)
-
-    # Merge: live > chart
-    final_results = {}
-    for g in TARGETS:
-        if g in todays_live:
-            final_results[g] = todays_live[g]
-        elif g in todays_chart:
-            final_results[g] = todays_chart[g]
-
-    # अपडेट्स चेक करो
+    # अपडेट्स निकालो
     updates = {}
-    for g, val in final_results.items():
-        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
+    for g, val in live_results.items():
+        prev_val = state.get("sent_results", {}).get(g)
+        if prev_val != val:
             updates[g] = val
 
-    # अगर कुछ अपडेट है → भेजो
+    # अगर कोई update है → भेजो
     if updates:
         msg = build_message(today, updates)
         send_message(msg)
