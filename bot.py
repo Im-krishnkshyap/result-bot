@@ -10,14 +10,14 @@ STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GAZIYABAD", "GALI", "DESAWAR"]
 
-# ------------------ Utility functions ------------------
+# ------------------ Utility ------------------
 
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI" in s and "BAZAR" in s: return "DELHI BAZAR"
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
-    if "GAZIYABAD" in s or "GHAZIYABAD" in s: return "GAZIYABAD"
+    if "GAZI" in s or "GHAZI" in s: return "GAZIYABAD"
     if "GALI" in s: return "GALI"
     if "DISAWER" in s or "DESAWAR" in s: return "DESAWAR"
     return s
@@ -39,7 +39,7 @@ def send_message(msg):
     except Exception as e:
         print("Send fail:", e, file=sys.stderr)
 
-# ------------------ Parsing functions ------------------
+# ------------------ Parsing ------------------
 
 def parse_live(soup):
     results = {}
@@ -53,15 +53,25 @@ def parse_live(soup):
                 results[name] = num
     return results
 
+def parse_gboard(soup):
+    results = {}
+    blocks = soup.select(".gboardfull, .gboardhalf")
+    for block in blocks:
+        name_el = block.select_one(".gbfullgamename, .gbgamehalf")
+        value_el = block.select_one(".gbfullresult, .gbhalfresulto")
+        if name_el and value_el:
+            cname = canonical_name(name_el.get_text())
+            num = extract_num(value_el.get_text())
+            if cname in TARGETS and num:
+                results[cname] = num
+    return results
+
 def parse_chart(soup):
     results = {}
     rows = soup.select("table.newtable tr")
-    if not rows:
-        return results
-
+    if not rows: return results
     headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
     last = rows[-1].find_all(["td","th"])
-
     for i, h in enumerate(headers):
         cname = canonical_name(h)
         if cname in TARGETS and i < len(last):
@@ -71,7 +81,7 @@ def parse_chart(soup):
                 results[cname] = num
     return results
 
-# ------------------ State functions ------------------
+# ------------------ State ------------------
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -89,19 +99,20 @@ def build_message(results):
         lines.append(f"*{t}:* {results.get(t,'WAIT')}")
     return "\n".join(lines)
 
-# ------------------ Main logic ------------------
+# ------------------ Main ------------------
 
 def main():
     html = requests.get(URL, timeout=10).text
     soup = BeautifulSoup(html, "html.parser")
 
     live = parse_live(soup)
+    gboard = parse_gboard(soup)
     chart = parse_chart(soup)
 
     today = datetime.now().strftime("%Y-%m-%d")
     state = load_state()
 
-    # Reset on new day → show yesterday's chart snapshot
+    # Reset on new day → start from chart (yesterday results)
     if state.get("date") != today:
         final = {t: chart.get(t, "WAIT") for t in TARGETS}
         msg = build_message(final)
@@ -110,12 +121,20 @@ def main():
         save_state(state)
         return
 
-    # Update only if new live results come
+    # Merge priority: live > gboard > chart
     final = state["results"].copy()
     updated = False
     for t in TARGETS:
-        if t in live and final.get(t) != live[t]:
-            final[t] = live[t]
+        new_val = None
+        if t in live:
+            new_val = live[t]
+        elif t in gboard:
+            new_val = gboard[t]
+        elif t in chart:
+            new_val = chart[t]
+
+        if new_val and final.get(t) != new_val:
+            final[t] = new_val
             updated = True
 
     if updated:
