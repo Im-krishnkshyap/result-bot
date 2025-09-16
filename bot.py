@@ -10,7 +10,6 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 
 STATE_FILE = "last_sent.json"
 
-# Game Targets
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
 # ------------------ Utility ------------------
@@ -94,13 +93,10 @@ def parse_chart_for_date(soup, date_str):
                 break
     return results
 
-def build_message(date_str, results, fallback=False):
-    lines = [f"📅 {date_str} का रिज़ल्ट"]
-    for g in TARGETS:
-        if g in results:
-            lines.append(f"{g} → {results[g]}")
-        else:
-            lines.append(f"{g} → {'WAIT' if not fallback else 'NA'}")
+def build_message(date_str, updates):
+    lines = [f"📅 {date_str} का अपडेट"]
+    for g, v in updates.items():
+        lines.append(f"{g} → {v}")
     return "\n".join(lines)
 
 # ------------------ Main ------------------
@@ -109,46 +105,40 @@ def main():
     today = datetime.now().strftime("%d-%m")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
-
     soup = fetch_html()
 
-    # 1️⃣ नया दिन → कल का पूरा result भेजो
-    if state["date"] != today:
+    # नया दिन → कल का पूरा result भेजो (fallback)
+    if state.get("date") != today:
         yres = parse_chart_for_date(soup, yesterday)
         if yres:
-            msg = build_message(yesterday, yres, fallback=True)
+            msg = build_message(yesterday, yres)
             send_message(msg)
         state = {"date": today, "sent_results": {}}
         save_state(state)
 
-    # 2️⃣ आज का live chart parse करो
+    # आज के live और chart results
     todays_live = parse_live(soup)
     todays_chart = parse_chart_for_date(soup, today)
 
-    # 3️⃣ Delhi Bazar(DL) आने तक कोई live msg मत भेजो
-    if "DELHI BAZAR" not in todays_live:
-        return
-
-    # 4️⃣ Delhi Bazar आने के बाद send/update
-    final_results = state.get("sent_results", {}).copy()
-    updated = False
-
-    # Merge priority: live > chart
+    # Merge: live > chart
+    final_results = {}
     for g in TARGETS:
-        new_val = None
         if g in todays_live:
-            new_val = todays_live[g]
+            final_results[g] = todays_live[g]
         elif g in todays_chart:
-            new_val = todays_chart[g]
+            final_results[g] = todays_chart[g]
 
-        if new_val and final_results.get(g) != new_val:
-            final_results[g] = new_val
-            updated = True
+    # अपडेट्स चेक करो
+    updates = {}
+    for g, val in final_results.items():
+        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
+            updates[g] = val
 
-    if updated:
-        msg = build_message(today, final_results)
+    # अगर कुछ अपडेट है → भेजो
+    if updates:
+        msg = build_message(today, updates)
         send_message(msg)
-        state["sent_results"] = final_results
+        state.setdefault("sent_results", {}).update(updates)
         state["date"] = today
         save_state(state)
 
