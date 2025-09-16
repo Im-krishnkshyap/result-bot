@@ -31,8 +31,16 @@ def extract_num(text):
 def load_state():
     if not os.path.exists(STATE_FILE):
         return {"date": None, "sent_results": {}}
-    with open(STATE_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(STATE_FILE, "r") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                return {"date": None, "sent_results": {}}
+            if "date" not in data or "sent_results" not in data:
+                return {"date": None, "sent_results": {}}
+            return data
+    except Exception:
+        return {"date": None, "sent_results": {}}
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
@@ -59,7 +67,8 @@ def parse_chart_for_date(soup, date_str):
 
     for row in rows[1:]:
         cols = row.find_all(["td", "th"])
-        if not cols: continue
+        if not cols: 
+            continue
         if cols[0].get_text().strip() == date_str:
             for i, h in enumerate(headers):
                 cname = canonical_name(h)
@@ -86,6 +95,13 @@ def main():
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
 
     state = load_state()
+
+    # Safety check (अगर कुछ missing हो)
+    if "date" not in state:
+        state["date"] = None
+    if "sent_results" not in state:
+        state["sent_results"] = {}
+
     soup = fetch_html()
 
     # 1. नया दिन → कल का पूरा result भेजो
