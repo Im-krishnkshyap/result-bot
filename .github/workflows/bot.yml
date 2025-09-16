@@ -2,12 +2,13 @@ name: Run Telegram Bot
 
 on:
   schedule:
-    - cron: "*/1 * * * *"   # हर 10 मिनट पर
+    - cron: "*/1 * * * *"   # हर 1 मिनट पर
   workflow_dispatch:         # Manual run option
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -24,5 +25,5 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
-          TARGET_URL: ${{ secrets.TARGET_URL }}
+          RESULT_URL: ${{ secrets.RESULT_URL }}
         run: python bot.py
