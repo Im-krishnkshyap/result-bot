@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
-
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
@@ -22,7 +21,7 @@ def canonical_name(raw):
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
     if "GALI" in s: return "GALI"
     if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
-    return None  # अगर target नहीं है, तो None return करो
+    return s
 
 def extract_num(text):
     t = text.strip()
@@ -68,6 +67,7 @@ def parse_live(soup):
         num = extract_num(v.get_text())
         if cname and num:
             results[cname] = num
+            print(f"[LIVE] {cname} → {num}")  # Debug
     return results
 
 def parse_chart_for_date(soup, date_str):
@@ -89,11 +89,12 @@ def parse_chart_for_date(soup, date_str):
                         num = extract_num(cols[i].get_text())
                         if num:
                             results[cname] = num
+                            print(f"[CHART] {cname} → {num}")  # Debug
                 break
     return results
 
 def build_message(date_str, updates):
-    lines = [f"📅 {date_str} का अपडेट"]
+    lines = [f"🕉Antaryami Baba🕉:\n📅 {date_str} का अपडेट"]
     for g, v in updates.items():
         lines.append(f"{g} → {v}")
     return "\n".join(lines)
@@ -106,8 +107,9 @@ def main():
     state = load_state()
     soup = fetch_html()
 
-    # नया दिन → कल का fallback भेजो
+    # अगर date बदल गया → state reset
     if state.get("date") != today:
+        # कल का chart fallback
         yres = parse_chart_for_date(soup, yesterday)
         if yres:
             msg = build_message(yesterday, yres)
@@ -119,15 +121,17 @@ def main():
     todays_live = parse_live(soup)
     todays_chart = parse_chart_for_date(soup, today)
 
-    # Merge: live > chart
+    # Merge: live > chart, live priority
     final_results = {}
     for g in TARGETS:
-        if g in todays_live:
+        if g in ["DELHI BAZAR","SHRI GANESH"] and g in todays_live:
+            final_results[g] = todays_live[g]
+        elif g in todays_live:
             final_results[g] = todays_live[g]
         elif g in todays_chart:
             final_results[g] = todays_chart[g]
 
-    # अपडेट्स चेक करो (जो पहले भेजा नहीं गया या बदल गया)
+    # अपडेट्स चेक करो
     updates = {}
     for g, val in final_results.items():
         if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
