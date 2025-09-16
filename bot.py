@@ -16,32 +16,12 @@ TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DIS
 
 def canonical_name(raw):
     s = raw.upper().strip()
-
-    # DELHI BAZAR variations (DELHI BAZAR, DELHI BZR, DELHI BAZAR(DL))
-    if "DELHI" in s and "BAZ" in s:
-        return "DELHI BAZAR"
-
-    # SHRI GANESH variations (GANESH, SHREE GANESH, GANESH JI)
-    if "GANESH" in s:
-        return "SHRI GANESH"
-
-    # FARIDABAD
-    if "FARIDABAD" in s:
-        return "FARIDABAD"
-
-    # GAZIYABAD / GHAZIYABAD
-    if "GAZI" in s or "GHAZI" in s:
-        return "GAZIYABAD"
-
-    # GALI
-    if "GALI" in s:
-        return "GALI"
-
-    # DESAWAR / DISAWER
-    if "DISAWER" in s or "DESAWAR" in s:
-        return "DESAWAR"
-
-    # fallback - return cleaned original
+    if "DELHI BAZAR" in s: return "DELHI BAZAR"
+    if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
+    if "FARIDABAD" in s: return "FARIDABAD"
+    if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
+    if "GALI" == s: return "GALI"
+    if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
     return s
 
 def extract_num(text):
