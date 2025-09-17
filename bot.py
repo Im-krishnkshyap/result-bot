@@ -61,6 +61,8 @@ def send_message(text):
 
 def parse_live(soup):
     results = {}
+
+    # पहले div वाले live result देखो
     games = soup.select(".resultmain .livegame")
     vals = soup.select(".resultmain .liveresult")
     for i, g in enumerate(games):
@@ -69,6 +71,26 @@ def parse_live(soup):
             num = extract_num(vals[i].get_text())
             if num:
                 results[cname] = num
+
+    # खासतौर पर DELHI BAZAR को td से भी उठाओ (fallback)
+    if "DELHI BAZAR" not in results:
+        tables = soup.select("table.newtable")
+        for table in tables:
+            rows = table.select("tr")
+            if not rows:
+                continue
+            headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
+            for row in rows[1:]:
+                cols = row.find_all(["td","th"])
+                if not cols:
+                    continue
+                for i, h in enumerate(headers):
+                    cname = canonical_name(h)
+                    if cname == "DELHI BAZAR" and i < len(cols):
+                        num = extract_num(cols[i].get_text())
+                        if num:
+                            results[cname] = num
+                        break
     return results
 
 def parse_chart_for_date(soup, date_str):
