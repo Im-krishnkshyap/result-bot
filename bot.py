@@ -110,7 +110,7 @@ def build_message(date_str, updates):
             elif g == "GHAZIYABAD":
                 lines.append(f"गाजियाबाद      {v}")
             elif g == "GALI":
-                lines.append(f"गली                 {v}")
+                lines.append(f"गली                {v}")
             elif g == "DISAWER":
                 lines.append(f"दिसावर            {v}")
 
@@ -156,9 +156,11 @@ def main():
     if updates:
         msg = build_message(today, updates)
         send_message(msg)
-        state.setdefault("sent_results", {}).update(updates)
-        state["date"] = today
-        save_state(state)
+
+    # हर हाल में sent_results को final_results से sync करो
+    state.setdefault("sent_results", {}).update(final_results)
+    state["date"] = today
+    save_state(state)
 
 if __name__ == "__main__":
     main()
