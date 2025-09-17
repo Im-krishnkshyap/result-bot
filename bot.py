@@ -102,17 +102,17 @@ def build_message(date_str, updates):
         if g in updates:
             v = updates[g]
             if g == "DELHI BAZAR":
-                lines.append(f"दिल्ली बाजार =={v}")
+                lines.append(f"दिल्ली बाजार   {v}")
             elif g == "SHRI GANESH":
-                lines.append(f"श्री गणेश ====={v}")
+                lines.append(f"श्री गणेश      {v}")
             elif g == "FARIDABAD":
-                lines.append(f"फरीदाबाद ====={v}")
+                lines.append(f"फरीदाबाद     {v}")
             elif g == "GHAZIYABAD":
-                lines.append(f"गाजियाबाद ==== {v}")
+                lines.append(f"गाजियाबाद     {v}")
             elif g == "GALI":
-                lines.append(f"गली     ==== {v}")
+                lines.append(f"गली          {v}")
             elif g == "DISAWER":
-                lines.append(f"दिसावर   ==== {v}")
+                lines.append(f"दिसावर        {v}")
 
     lines.append("√√√√√√√√√√√√√√√√√")
     return "\n".join(lines)
