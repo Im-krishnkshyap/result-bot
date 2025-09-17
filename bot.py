@@ -15,7 +15,7 @@ TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DIS
 
 # टाइमिंग्स 24-घंटे फॉर्मेट में (HH:MM)
 TIMINGS = {
-    "DELHI BAZAR": "14:50",
+    "DELHI BAZAR": "15:01",
     "SHRI GANESH": "16:30",
     "FARIDABAD": "18:00",
     "GHAZIYABAD": "21:25",
