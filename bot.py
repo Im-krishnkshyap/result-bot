@@ -95,6 +95,7 @@ def parse_chart_for_date(soup, date_str):
 
 def build_message(date_str, updates):
     lines = [f"🔛खबर की जानकारी👉", "⚠️⚠️⚠️⚠️⚠️⚠️〽️〽️"]
+    lines = [f"📅 {date_str} का अपडेट"]
     for g, v in updates.items():
         if g == "DELHI BAZAR":
             lines.append(f"दिल्ली बाजार =={v}")
@@ -107,7 +108,7 @@ def build_message(date_str, updates):
         elif g == "GALI":
             lines.append(f"गली की बलि ==== {v}")
         elif g == "DISAWER":
-            lines.append(f"दिसावर/दिल्ली==== {v}")
+            lines.append(f"दिसावर ==== {v}")
     lines.append("√√√√√√√√√√√√√√√√√")
     return "\n".join(lines)
 # ------------------ Main ------------------
