@@ -3,19 +3,18 @@ import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-import time  # नया इम्पोर्ट: स्लीप के लिए
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+LOCK_FILE = "bot_lock.txt"
 
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
-# टाइमिंग्स 24-घंटे फॉर्मेट में (HH:MM)
 TIMINGS = {
-    "DELHI BAZAR": "15:01",
+    "DELHI BAZAR": "14:50",
     "SHRI GANESH": "16:30",
     "FARIDABAD": "18:00",
     "GHAZIYABAD": "21:25",
@@ -24,6 +23,17 @@ TIMINGS = {
 }
 
 # ------------------ Utility ------------------
+
+def is_locked():
+    return os.path.exists(LOCK_FILE)
+
+def lock():
+    with open(LOCK_FILE, "w") as f:
+        f.write("locked")
+
+def unlock():
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
 
 def canonical_name(raw):
     s = raw.upper().strip()
@@ -130,63 +140,60 @@ def build_message(date_str, updates):
 
 # ------------------ Main ------------------
 
-def process_results():
-    today = datetime.now().strftime("%d-%m")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
-    state = load_state()
-    soup = fetch_html()
-
-    # नया दिन → कल का पूरा result भेजो (fallback)
-    if state.get("date") != today:
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
-            send_message(msg)
-        state = {"date": today, "sent_results": {}}
-        save_state(state)
-
-    # आज के live और chart results
-    todays_live = parse_live(soup)
-    todays_chart = parse_chart_for_date(soup, today)
-
-    # Merge: live > chart
-    final_results = {}
-    for g in TARGETS:
-        if g in todays_live:
-            final_results[g] = todays_live[g]
-        elif g in todays_chart:
-            final_results[g] = todays_chart[g]
-
-    # अपडेट्स चेक करो
-    updates = {}
-    for g, val in final_results.items():
-        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
-            updates[g] = val
-
-    # अगर कुछ अपडेट है → भेजो
-    if updates:
-        msg = build_message(today, updates)
-        send_message(msg)
-        state.setdefault("sent_results", {}).update(updates)
-        state["date"] = today
-        save_state(state)
+def is_due_time():
+    now = datetime.now()
+    for timestr in TIMINGS.values():
+        h, m = map(int, timestr.split(':'))
+        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if now - target < timedelta(minutes=5) and now > target:  # 5 मिनट विंडो में है
+            return True
+    return False
 
 def main():
-    while True:
-        now = datetime.now()
-        min_delta = timedelta(days=1)
-        for timestr in TIMINGS.values():
-            h, m = map(int, timestr.split(':'))
-            target = now.replace(hour=h, minute=m, second=0, microsecond=0)
-            if target <= now:  # अगर पास्ट है, तो नेक्स्ट डे
-                target += timedelta(days=1)
-            delta = target - now
-            if delta < min_delta:
-                min_delta = delta
-        sleep_seconds = max(min_delta.total_seconds(), 0)
-        print(f"स्लीप कर रहा हूँ {sleep_seconds} सेकंड्स तक...")  # डीबग के लिए
-        time.sleep(sleep_seconds)
-        process_results()  # अब प्रोसेस करो
+    if is_locked():
+        print("लॉक है, स्किप!")
+        return
+    lock()
+    try:
+        if not is_due_time():
+            print("कोई टाइमिंग ड्यू नहीं, स्किप!")
+            return
+        today = datetime.now().strftime("%d-%m")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
+        state = load_state()
+        soup = fetch_html()
+
+        if state.get("date") != today:
+            yres = parse_chart_for_date(soup, yesterday)
+            if yres:
+                msg = build_message(yesterday, yres)
+                send_message(msg)
+            state = {"date": today, "sent_results": {}}
+            save_state(state)
+
+        todays_live = parse_live(soup)
+        todays_chart = parse_chart_for_date(soup, today)
+
+        final_results = {}
+        for g in TARGETS:
+            if g in todays_live:
+                final_results[g] = todays_live[g]
+            elif g in todays_chart:
+                final_results[g] = todays_chart[g]
+
+        updates = {}
+        for g, val in final_results.items():
+            if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
+                updates[g] = val
+
+        if updates:
+            msg = build_message(today, updates)
+            send_message(msg)
+            state.setdefault("sent_results", {}).update(updates)
+            state["date"] = today
+            save_state(state)
+    finally:
+        unlock()
 
 if __name__ == "__main__":
     main()
