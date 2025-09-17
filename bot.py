@@ -3,6 +3,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+import time  # नया: loop के लिए
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
@@ -28,6 +29,9 @@ def extract_num(text):
     t = text.strip()
     if t.upper() == "WAIT" or t == "": 
         return None
+    # नया: {59} जैसे curly braces को भी हैंडल करो
+    if t.startswith("{") and t.endswith("}"):
+        t = t[1:-1].strip()
     return t if t.isdigit() else None
 
 def load_state():
@@ -119,7 +123,7 @@ def build_message(date_str, updates):
 
 # ------------------ Main ------------------
 
-def main():
+def process_day():
     today = datetime.now().strftime("%d-%m")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
@@ -160,5 +164,28 @@ def main():
         state["date"] = today
         save_state(state)
 
+    return updates  # रिटर्न ताकि लूप में चेक कर सको
+
+def main(use_loop=False, check_interval=300):  # check_interval in seconds (default 5 min)
+    if use_loop:
+        # DELHI BAZAR के टाइम के आसपास लूप: 2:30 PM से 3:30 PM (IST assume)
+        now = datetime.now()
+        start_time = now.replace(hour=14, minute=30, second=0, microsecond=0)  # 2:30 PM
+        end_time = now.replace(hour=15, minute=30, second=0, microsecond=0)    # 3:30 PM
+        if now < start_time:
+            time.sleep((start_time - now).total_seconds())
+        
+        while datetime.now() < end_time:
+            print(f"Checking at {datetime.now().strftime('%H:%M:%S')}...")
+            updates = process_day()
+            if updates and "DELHI BAZAR" in updates:
+                print("DELHI BAZAR updated! Stopping loop.")
+                break
+            time.sleep(check_interval)
+    else:
+        process_day()
+
 if __name__ == "__main__":
-    main()
+    # Normal run: python script.py
+    # Loop mode: python script.py (set use_loop=True in code or env)
+    main(use_loop=True)  # लूप इनेबल कर दिया, production में cron यूज करो
