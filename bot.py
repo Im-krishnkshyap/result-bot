@@ -110,7 +110,7 @@ def build_message(date_str, updates):
             elif g == "GHAZIYABAD":
                 lines.append(f"गाजियाबाद      {v}")
             elif g == "GALI":
-                lines.append(f"गली               {v}")
+                lines.append(f"गली                {v}")
             elif g == "DISAWER":
                 lines.append(f"दिसावर            {v}")
 
