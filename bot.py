@@ -20,7 +20,7 @@ def canonical_name(raw):
     if "SHRI" in s and "GANESH" in s: return "SHRI GANESH"
     if "FARIDABAD" in s: return "FARIDABAD"
     if "GHAZI" in s or "GAZI" in s: return "GHAZIYABAD"
-    if "GALI" in s: return "GALI"
+    if s == "GALI" or s.startswith("GALI ") or s.endswith(" GALI") or s == "GALI (GL)": return "GALI"
     if "DISAWER" in s or "DESAWAR" in s: return "DISAWER"
     return s
 
