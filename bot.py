@@ -3,7 +3,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-import time  # नया: loop के लिए
+import time  # नया इम्पोर्ट: स्लीप के लिए
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
@@ -12,6 +12,16 @@ URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
+
+# टाइमिंग्स 24-घंटे फॉर्मेट में (HH:MM)
+TIMINGS = {
+    "DELHI BAZAR": "14:50",
+    "SHRI GANESH": "16:30",
+    "FARIDABAD": "18:00",
+    "GHAZIYABAD": "21:25",
+    "GALI": "23:25",
+    "DISAWER": "04:50"
+}
 
 # ------------------ Utility ------------------
 
@@ -29,9 +39,6 @@ def extract_num(text):
     t = text.strip()
     if t.upper() == "WAIT" or t == "": 
         return None
-    # नया: {59} जैसे curly braces को भी हैंडल करो
-    if t.startswith("{") and t.endswith("}"):
-        t = t[1:-1].strip()
     return t if t.isdigit() else None
 
 def load_state():
@@ -123,7 +130,7 @@ def build_message(date_str, updates):
 
 # ------------------ Main ------------------
 
-def process_day():
+def process_results():
     today = datetime.now().strftime("%d-%m")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
     state = load_state()
@@ -164,28 +171,22 @@ def process_day():
         state["date"] = today
         save_state(state)
 
-    return updates  # रिटर्न ताकि लूप में चेक कर सको
-
-def main(use_loop=False, check_interval=300):  # check_interval in seconds (default 5 min)
-    if use_loop:
-        # DELHI BAZAR के टाइम के आसपास लूप: 2:30 PM से 3:30 PM (IST assume)
+def main():
+    while True:
         now = datetime.now()
-        start_time = now.replace(hour=14, minute=30, second=0, microsecond=0)  # 2:30 PM
-        end_time = now.replace(hour=15, minute=30, second=0, microsecond=0)    # 3:30 PM
-        if now < start_time:
-            time.sleep((start_time - now).total_seconds())
-        
-        while datetime.now() < end_time:
-            print(f"Checking at {datetime.now().strftime('%H:%M:%S')}...")
-            updates = process_day()
-            if updates and "DELHI BAZAR" in updates:
-                print("DELHI BAZAR updated! Stopping loop.")
-                break
-            time.sleep(check_interval)
-    else:
-        process_day()
+        min_delta = timedelta(days=1)
+        for timestr in TIMINGS.values():
+            h, m = map(int, timestr.split(':'))
+            target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if target <= now:  # अगर पास्ट है, तो नेक्स्ट डे
+                target += timedelta(days=1)
+            delta = target - now
+            if delta < min_delta:
+                min_delta = delta
+        sleep_seconds = max(min_delta.total_seconds(), 0)
+        print(f"स्लीप कर रहा हूँ {sleep_seconds} सेकंड्स तक...")  # डीबग के लिए
+        time.sleep(sleep_seconds)
+        process_results()  # अब प्रोसेस करो
 
 if __name__ == "__main__":
-    # Normal run: python script.py
-    # Loop mode: python script.py (set use_loop=True in code or env)
-    main(use_loop=True)  # लूप इनेबल कर दिया, production में cron यूज करो
+    main()
