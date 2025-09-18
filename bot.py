@@ -1,19 +1,28 @@
 import os
 import json
 import requests
+import time
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
+# ---------------- CONFIG ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
-
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
-# ------------------ Utility ------------------
+HINDI_NAMES = {
+    "DELHI BAZAR": "दिल्ली बाजार",
+    "SHRI GANESH": "श्री गणेश",
+    "FARIDABAD": "फरीदाबाद",
+    "GHAZIYABAD": "गाजियाबाद",
+    "GALI": "गली",
+    "DISAWER": "दिसावर"
+}
 
+# ---------------- UTILITY ----------------
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI BAZAR" in s: return "DELHI BAZAR"
@@ -26,7 +35,7 @@ def canonical_name(raw):
 
 def extract_num(text):
     t = text.strip()
-    if t.upper() == "WAIT" or t == "": 
+    if t.upper() == "WAIT" or t == "":
         return None
     return t if t.isdigit() else None
 
@@ -35,12 +44,7 @@ def load_state():
         return {"date": None, "sent_results": {}}
     try:
         with open(STATE_FILE, "r") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                return {"date": None, "sent_results": {}}
-            if "date" not in data or "sent_results" not in data:
-                return {"date": None, "sent_results": {}}
-            return data
+            return json.load(f)
     except Exception:
         return {"date": None, "sent_results": {}}
 
@@ -55,10 +59,12 @@ def fetch_html():
 
 def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
+    try:
+        requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
+    except Exception as e:
+        print("❌ Telegram error:", e)
 
-# ------------------ Parsing ------------------
-
+# ---------------- PARSING ----------------
 def parse_live(soup):
     results = {}
     games = soup.select(".resultmain .livegame")
@@ -94,53 +100,58 @@ def parse_chart_for_date(soup, date_str):
     return results
 
 def build_message(date_str, updates):
-    lines = [f"📅 {date_str} का अपडेट"]
-    for g, v in updates.items():
-        lines.append(f"{g} → {v}")
+    lines = [f"🔛खबर की जानकारी😘", f"📅 {date_str} का अपडेट"]
+    for g in TARGETS:
+        if g in updates:
+            hn = HINDI_NAMES[g]
+            lines.append(f"{hn:12} {updates[g]}")
+    lines.append("√√√√√√√√√√√√√√√√√")
     return "\n".join(lines)
 
-# ------------------ Main ------------------
-
+# ---------------- MAIN LOOP ----------------
 def main():
-    today = datetime.now().strftime("%d-%m")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
-    state = load_state()
-    soup = fetch_html()
+    while True:
+        now = datetime.now()
+        today = now.strftime("%d-%m")
+        yesterday = (now - timedelta(days=1)).strftime("%d-%m")
 
-    # नया दिन → कल का पूरा result भेजो (fallback)
-    if state.get("date") != today:
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
+        state = load_state()
+        soup = fetch_html()
+
+        # नया दिन reset + fallback (कल का पूरा result)
+        if state.get("date") != today:
+            yres = parse_chart_for_date(soup, yesterday)
+            if yres:
+                msg = build_message(yesterday, yres)
+                send_message(msg)
+            state = {"date": today, "sent_results": {}}
+            save_state(state)
+
+        # आज के result निकालो
+        todays_live = parse_live(soup)
+        todays_chart = parse_chart_for_date(soup, today)
+
+        final_results = {}
+        for g in TARGETS:
+            if g in todays_live:
+                final_results[g] = todays_live[g]
+            elif g in todays_chart:
+                final_results[g] = todays_chart[g]
+
+        # सिर्फ नए updates भेजो
+        updates = {}
+        for g, val in final_results.items():
+            if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
+                updates[g] = val
+
+        if updates:
+            msg = build_message(today, updates)
             send_message(msg)
-        state = {"date": today, "sent_results": {}}
-        save_state(state)
+            state["sent_results"].update(updates)
+            state["date"] = today
+            save_state(state)
 
-    # आज के live और chart results
-    todays_live = parse_live(soup)
-    todays_chart = parse_chart_for_date(soup, today)
-
-    # Merge: live > chart
-    final_results = {}
-    for g in TARGETS:
-        if g in todays_live:
-            final_results[g] = todays_live[g]
-        elif g in todays_chart:
-            final_results[g] = todays_chart[g]
-
-    # अपडेट्स चेक करो
-    updates = {}
-    for g, val in final_results.items():
-        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
-            updates[g] = val
-
-    # अगर कुछ अपडेट है → भेजो
-    if updates:
-        msg = build_message(today, updates)
-        send_message(msg)
-        state.setdefault("sent_results", {}).update(updates)
-        state["date"] = today
-        save_state(state)
+        time.sleep(60)  # हर 1 मिनट बाद check
 
 if __name__ == "__main__":
     main()
