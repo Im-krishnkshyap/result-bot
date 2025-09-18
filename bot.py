@@ -1,9 +1,11 @@
 import os
 import json
-import requests
+import time
 from datetime import datetime, timedelta
+import requests
 from bs4 import BeautifulSoup
 
+# ---------------- CONFIG ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
@@ -12,8 +14,16 @@ STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
 
-# ------------------ Utility ------------------
+SLOTS = {
+    "DELHI BAZAR": ("15:14", "15:20"),
+    "SHRI GANESH": ("16:47", "17:00"),
+    "FARIDABAD": ("18:14", "18:20"),
+    "GHAZIYABAD": ("22:10", "22:20"),
+    "GALI": ("00:00", "00:05"),
+    "DISAWER": ("05:14", "05:20"),
+}
 
+# ---------------- UTILITY ----------------
 def canonical_name(raw):
     s = raw.upper().strip()
     if "DELHI BAZAR" in s: return "DELHI BAZAR"
@@ -26,23 +36,18 @@ def canonical_name(raw):
 
 def extract_num(text):
     t = text.strip()
-    if t.upper() == "WAIT" or t == "": 
+    if t.upper() == "WAIT" or t == "":
         return None
     return t if t.isdigit() else None
 
 def load_state():
     if not os.path.exists(STATE_FILE):
-        return {"date": None, "sent_results": {}}
+        return {"date": None, "sent_results": {}, "slot_done": {}}
     try:
         with open(STATE_FILE, "r") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                return {"date": None, "sent_results": {}}
-            if "date" not in data or "sent_results" not in data:
-                return {"date": None, "sent_results": {}}
-            return data
+            return json.load(f)
     except Exception:
-        return {"date": None, "sent_results": {}}
+        return {"date": None, "sent_results": {}, "slot_done": {}}
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
@@ -57,12 +62,9 @@ def send_message(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": text})
 
-# ------------------ Parsing ------------------
-
+# ---------------- PARSING ----------------
 def parse_live(soup):
     results = {}
-
-    # पहले div वाले live result देखो
     games = soup.select(".resultmain .livegame")
     vals = soup.select(".resultmain .liveresult")
     for i, g in enumerate(games):
@@ -71,26 +73,6 @@ def parse_live(soup):
             num = extract_num(vals[i].get_text())
             if num:
                 results[cname] = num
-
-    # खासतौर पर DELHI BAZAR को td से भी उठाओ (fallback)
-    if "DELHI BAZAR" not in results:
-        tables = soup.select("table.newtable")
-        for table in tables:
-            rows = table.select("tr")
-            if not rows:
-                continue
-            headers = [h.get_text().strip().upper() for h in rows[0].find_all(["th","td"])]
-            for row in rows[1:]:
-                cols = row.find_all(["td","th"])
-                if not cols:
-                    continue
-                for i, h in enumerate(headers):
-                    cname = canonical_name(h)
-                    if cname == "DELHI BAZAR" and i < len(cols):
-                        num = extract_num(cols[i].get_text())
-                        if num:
-                            results[cname] = num
-                        break
     return results
 
 def parse_chart_for_date(soup, date_str):
@@ -117,9 +99,7 @@ def parse_chart_for_date(soup, date_str):
 
 def build_message(date_str, updates):
     lines = [f"🔛खबर की जानकारी😘", f"📅 {date_str} का अपडेट"]
-
     order = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
-
     for g in order:
         if g in updates:
             v = updates[g]
@@ -135,54 +115,48 @@ def build_message(date_str, updates):
                 lines.append(f"गली                {v}")
             elif g == "DISAWER":
                 lines.append(f"दिसावर            {v}")
-
     lines.append("√√√√√√√√√√√√√√√√√")
     return "\n".join(lines)
 
-# ------------------ Main ------------------
-
+# ---------------- MAIN LOOP ----------------
 def main():
-    today = datetime.now().strftime("%d-%m")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m")
-    state = load_state()
-    soup = fetch_html()
+    while True:
+        now = datetime.now()
+        today = now.strftime("%d-%m")
+        state = load_state()
 
-    # नया दिन → कल का पूरा result भेजो (fallback)
-    if state.get("date") != today:
-        yres = parse_chart_for_date(soup, yesterday)
-        if yres:
-            msg = build_message(yesterday, yres)
-            send_message(msg)
-        state = {"date": today, "sent_results": {}}
-        save_state(state)
+        # Reset state at new day
+        if state.get("date") != today:
+            state = {"date": today, "sent_results": {}, "slot_done": {}}
+            save_state(state)
 
-    # आज के live और chart results
-    todays_live = parse_live(soup)
-    todays_chart = parse_chart_for_date(soup, today)
+        # Check each slot
+        for game, (start, end) in SLOTS.items():
+            start_time = datetime.strptime(start, "%H:%M").time()
+            end_time = datetime.strptime(end, "%H:%M").time()
+            if start_time <= now.time() <= end_time:
+                if not state["slot_done"].get(game):
+                    soup = fetch_html()
+                    results = parse_live(soup)
+                    chart = parse_chart_for_date(soup, today)
+                    final = results.get(game) or chart.get(game)
+                    if final:
+                        msg = build_message(today, {game: final})
+                        send_message(msg)
+                        state["sent_results"][game] = final
+                        state["slot_done"][game] = True
+                        save_state(state)
 
-    # Merge: live > chart
-    final_results = {}
-    for g in TARGETS:
-        if g in todays_live:
-            final_results[g] = todays_live[g]
-        elif g in todays_chart:
-            final_results[g] = todays_chart[g]
+        # After Disawar slot, send summary
+        disawar_end = datetime.strptime("05:20", "%H:%M").time()
+        if now.time() > disawar_end and not state.get("summary_sent"):
+            if len(state["sent_results"]) == len(TARGETS):
+                msg = build_message(today, state["sent_results"])
+                send_message(msg)
+                state["summary_sent"] = True
+                save_state(state)
 
-    # अपडेट्स चेक करो
-    updates = {}
-    for g, val in final_results.items():
-        if g not in state.get("sent_results", {}) or state["sent_results"][g] != val:
-            updates[g] = val
-
-    # अगर कुछ अपडेट है → भेजो
-    if updates:
-        msg = build_message(today, updates)
-        send_message(msg)
-
-    # हर हाल में sent_results को final_results से sync करो
-    state.setdefault("sent_results", {}).update(final_results)
-    state["date"] = today
-    save_state(state)
+        time.sleep(60)  # check every minute
 
 if __name__ == "__main__":
     main()
