@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 # ---------------- CONFIG ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
-URL = os.getenv("RESULT_URL", "https://satta-king-fixed-no.in")
+URL = os.getenv("RESULT_URL", "https://www.black-satta.com/")
 STATE_FILE = "last_sent.json"
 
 TARGETS = ["DELHI BAZAR", "SHRI GANESH", "FARIDABAD", "GHAZIYABAD", "GALI", "DISAWER"]
